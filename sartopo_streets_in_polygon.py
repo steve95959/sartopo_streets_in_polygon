@@ -31,16 +31,57 @@
 #-----------------------------------------------------------------------------
 #   DATE   |  AUTHOR  |  NOTES
 #-----------------------------------------------------------------------------
+#  9-6-20     TMG        First commit
+#  9-6-20     TMG        working for lines obtained from map using API
+#-----------------------------------------------------------------------------
 
 from sartopo_python import SartopoSession
+import json
+from shapely.geometry import LineString,Polygon
 
 mapID="QARV"
+boundaryName="e2"
+boundaryCoords=None
 
 sts=SartopoSession("sartopo.com",mapID,configpath="C:\\Users\\caver\\Downloads\\sts.ini",account="caver456@gmail.com")
 
 shapes=sts.getFeatures("Shape")
-
 print(str(len(shapes))+" shapes found.")
+
+# build streets dictionary from lines on current map
+streets={}
+for shape in shapes:
+    if shape["geometry"]["type"]=="LineString":
+        streetName=shape["properties"]["title"]
+        coords=shape["geometry"]["coordinates"] # need [0] for polygons but not lines due to json structure
+        print("adding line '"+streetName+"' with "+str(len(coords))+" vertices")
+        streets[streetName]=coords
+
+# 1. find the boundary shape
+for shape in shapes:
+    print("---SHAPE---  title="+shape["properties"]["title"])
+    print(json.dumps(shape,sort_keys=True,indent=3))
+    if shape["geometry"]["type"]=="Polygon" and shape["properties"]["title"]==boundaryName:
+        boundaryShape=shape # sartopo object
+        boundaryCoords=shape["geometry"]["coordinates"][0] # coordinate list
+        # print("Coords:"+str(boundaryCoords))
+        boundaryPolygon=Polygon(boundaryCoords) # Shapely object
+        break
+
+# 2. find streets at least partially covered by the boundary shape
+#   streets is a dictionary: key = street name, val = coordinate list
+streetsToAdd={}
+for streetName in streets.keys():
+    coords=streets[streetName]
+    if LineString(coords).intersects(boundaryPolygon):
+        streetsToAdd[streetName]=coords
+
+# 3. send the results to sartopo
+print(str(len(streetsToAdd))+" streets are at least partially covered by "+boundaryName+":")
+for streetName in streetsToAdd.keys():
+    result=sts.addLine(streetsToAdd[streetName],streetName+".out",width=8,opacity=0.5,color='#0000FF')
+    print("  "+streetName+":"+str(result))
+
 
 # three-vertex-centerline buffer test shape, entirely inside shape 'e3':
 # {"properties":{"title":"buf1","description":"","folderId":null,"gpstype":"TRACK","stroke-width":2,"stroke-opacity":1,"stroke":"#FF0000","pattern":"solid"},"geometry":{"coordinates":[[[-119.3368561590181,37.96112666548135],[-119.26419088810952,37.89948559193528],[-119.21205461142533,37.96117000752221],[-119.21203546684448,37.96118513325123],[-119.21201043790118,37.96119333133232],[-119.21198333502517,37.96119335368434],[-119.2119582843836,37.96118519690443],[-119.21193909970961,37.961170102785964],[-119.21192870169588,37.961150369268296],[-119.21192867334575,37.96112900059819],[-119.21193901897527,37.96110924996199],[-119.26412407756902,37.899367043360144],[-119.26414140714591,37.899352897377135],[-119.26416395072032,37.899344491555986],[-119.26418880362515,37.89934290896174],[-119.26421276364351,37.89934835350702],[-119.2642327436041,37.89936012367826],[-119.33701716743222,37.96110233608887],[-119.3370305399595,37.96111879947132],[-119.33703572610682,37.9611379171178],[-119.33703206500518,37.96115725287176],[-119.33702002318752,37.961174342785185],[-119.33700113513875,37.96118700909829],[-119.24224405506062,38.00448385991809],[-119.24221840596034,38.00449076034439],[-119.24219135800698,38.00448940127205],[-119.24216702900625,38.0044799896071],[-119.24214912282795,38.004463958187536],[-119.24214036552543,38.00444374764827],[-119.24214209031858,38.004422434858675],[-119.2421540346233,38.004403264498116],[-119.24217438002746,38.00438915508298],[-119.3368561590181,37.96112666548135]]],"type":"Polygon"}}
