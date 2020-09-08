@@ -16,10 +16,13 @@
 #          (sts.getFeatures("Shape") then find the one with the specified name)
 #   2. iterate over street data, and use python Shapely module to select streets
 #        that are at least partially covered by the bounding polygon
-#   3. send those streets to sartopo; there are some possibilities:
-#      a. api/v0/geodata/buffer - specify centerline and width
-#      b. api/v1/Shape - specify polygon coordinates
-#      c. api/v0/save - specify multiple polygon objects in one API call
+#   3. send those streets to sartopo
+#       - as lines: use sts.addLine()
+#       - as line assignments: use sts.addLineAssignment()
+#       - as buffers or buffer assignments:
+#         - build the list of buffer polygon coordinates using Shapely buffer()
+#         - send to the map using sts.addPolygon() or sts.addAreaAssignment()
+#       - explore use of 'save' request to save multiple objects in one request?
 #
 #   developed for Nevada County Sheriff's Search and Rescue
 #    Copyright (c) 2020 Tom Grundy
@@ -33,34 +36,72 @@
 #-----------------------------------------------------------------------------
 #  9-6-20     TMG        First commit
 #  9-6-20     TMG        working for lines obtained from map using API
+#  9-7-20     TMG        working for buffer assignments, using kml from QGIS
+#                          to do: account for multi-segment roads in kml
 #-----------------------------------------------------------------------------
 
 from sartopo_python import SartopoSession
 import json
 from shapely.geometry import LineString,Polygon
+# from pykml import parser
+# from lxml import etree
+import xml.etree.ElementTree as et
+
 
 mapID="QARV"
-boundaryName="e2"
+boundaryName="e4"
 boundaryCoords=None
+streets={}
 
 sts=SartopoSession("sartopo.com",mapID,configpath="C:\\Users\\caver\\Downloads\\sts.ini",account="caver456@gmail.com")
 
 shapes=sts.getFeatures("Shape")
 print(str(len(shapes))+" shapes found.")
 
-# build streets dictionary from lines on current map
-streets={}
-for shape in shapes:
-    if shape["geometry"]["type"]=="LineString":
-        streetName=shape["properties"]["title"]
-        coords=shape["geometry"]["coordinates"] # need [0] for polygons but not lines due to json structure
-        print("adding line '"+streetName+"' with "+str(len(coords))+" vertices")
-        streets[streetName]=coords
+# build streets dictionary
+#  - option 1: use lines on sartopo map
+# for shape in shapes:
+#     if shape["geometry"]["type"]=="LineString":
+#         streetName=shape["properties"]["title"]
+#         coords=shape["geometry"]["coordinates"] # need [0] for polygons but not lines due to json structure
+#         print("adding line '"+streetName+"' with "+str(len(coords))+" vertices")
+#         streets[streetName]=coords
+#  - option 2: use lines from a gpx or json or kml
+# gpx_file=open('C:\\Users\\caver\\Documents\\nevCoRoads.gpx','r')
+# gpx=gpxpy.parse(gpx_file)
+# for track in gpx.tracks:
+#     name=track.name
+#     streets[name]=[]
+#     for segment in track.segments:
+#         for point in segment.points:
+#             streets[name].append([point.latitude,point.longitude]) # prelim: assume there's only one segment
+
+# this kml parsing works for QGIS KML export and is not guaranteed to work for export from other tools;
+#  see the detailed parsing documentation at https://docs.python.org/3.8/library/xml.etree.elementtree.html
+#  and look at the kml file itself to see what is happening
+kmlFile='C:\\Users\\caver\\Documents\\nevCoRoads.kml'
+kml=et.parse(kmlFile)
+root=kml.getroot()
+ns={'kml':root.tag.split('}')[0][1:]} # determine the namespace from the kml kmlns 'non-attribute'
+placemarks=root.findall('.//kml:Placemark',ns)
+unnamedIndex=1
+for pm in placemarks:
+    try:
+        name=pm.find(".//kml:SimpleData[@name='FULLNAME']",ns).text
+    except:
+        name="UNNAMED_"+str(unnamedIndex)
+        unnamedIndex+=1
+    # print("  processing "+name)
+    coordinates=pm.find('.//kml:coordinates',ns)
+    streets[name]=[list(map(float,x.split(','))) for x in coordinates.text.split()]
+print("Done parsing kml.  "+str(len(streets))+" streets were read.")
+
+# print(str(len(streets.keys()))+' streets read from '+gpx_file)
 
 # 1. find the boundary shape
 for shape in shapes:
-    print("---SHAPE---  title="+shape["properties"]["title"])
-    print(json.dumps(shape,sort_keys=True,indent=3))
+    # print("---SHAPE---  title="+shape["properties"]["title"])
+    # print(json.dumps(shape,sort_keys=True,indent=3))
     if shape["geometry"]["type"]=="Polygon" and shape["properties"]["title"]==boundaryName:
         boundaryShape=shape # sartopo object
         boundaryCoords=shape["geometry"]["coordinates"][0] # coordinate list
@@ -77,9 +118,28 @@ for streetName in streets.keys():
         streetsToAdd[streetName]=coords
 
 # 3. send the results to sartopo
+
+# add a 'results' folder if not already found
+fid=None
+folders=sts.getFeatures("Folder")
+# for folder in folders:
+#     print("---FOLDER---")
+#     print(json.dumps(folder,sort_keys=True,indent=3))
+for folder in folders:
+    if folder['properties']['title']=='results':
+        fid=folder['id']
+        break
+if fid is None:
+    fid=sts.addFolder('results')
+
 print(str(len(streetsToAdd))+" streets are at least partially covered by "+boundaryName+":")
 for streetName in streetsToAdd.keys():
-    result=sts.addLine(streetsToAdd[streetName],streetName+".out",width=8,opacity=0.5,color='#0000FF')
+    # as lines:
+    # result=sts.addLine(streetsToAdd[streetName],streetName+".out",width=8,opacity=0.5,color='#0000FF',folderId=fid)
+    # as line assignments:
+    # result=sts.addLineAssignment(letter=streetName+".la",points=streetsToAdd[streetName],folderId=fid)
+    # as buffer assignments:
+    result=sts.addAreaAssignment(letter=streetName,points=list(LineString(streetsToAdd[streetName]).buffer(0.0001).exterior.coords),folderId=fid)
     print("  "+streetName+":"+str(result))
 
 
