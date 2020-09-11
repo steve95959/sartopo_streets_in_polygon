@@ -1,3 +1,7 @@
+Short demo video using the 9-11-2020 commit:
+
+[![](http://img.youtube.com/vi/nPBtIBolm6k/0.jpg)](http://www.youtube.com/watch?v=nPBtIBolm6k "evacStreetImportPrelim")
+
 # sartopo_streets_in_polygon
 Create buffer assignments for all roads that are at least partially covered by a given polygon; intended for evacuation purposes, where an evacuation shape is specified, and buffer assignments are needed for all roads at least partially inside that evacuation shape
 
