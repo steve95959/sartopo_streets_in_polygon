@@ -39,8 +39,9 @@
 #  9-7-20     TMG        working for buffer assignments, using kml from QGIS
 #                          to do: account for multi-segment roads in kml
 # 9-11-20     TMG        handles multi-segment roads, but needs improvement;
-#                          improved chopping at zone edges; creates assignments
+#                          splits roads at zone edges; creates assignments
 #                          using queued bulk-import
+# 9-23-20     TMG        fix #6: read kml straight from county GIS download
 #-----------------------------------------------------------------------------
 
 from sartopo_python import SartopoSession
@@ -86,7 +87,8 @@ print(str(len(shapes))+" shapes found.")
 # this kml parsing works for KML export from QGIS or from SARTopo and is not guaranteed to work for export from other tools;
 #  see the detailed parsing documentation at https://docs.python.org/3.8/library/xml.etree.elementtree.html
 #  and look at the kml file itself to see what is happening
-kmlFile='C:\\Users\\caver\\Documents\\nevCoRoads.kml'
+# kmlFile='C:\\Users\\caver\\Documents\\nevCoRoads.kml'
+kmlFile='C:\\Users\\caver\\Downloads\\Road_Centerlines20200912.kml'
 # kmlFile='C:\\Users\\caver\\Downloads\\apiTest1.kml'
 # kmlFile='C:\\Users\\caver\\Downloads\\joinTest4.kml'
 kml=et.parse(kmlFile)
@@ -116,6 +118,7 @@ unnamedIndex=1
 #  of first placemark) then delete the suffixed placemark from the list of suffixed
 #  placemarks to process.
 for pm in placemarks:
+    name=""
     try:
         name=pm.find(".//kml:SimpleData[@name='FULLNAME']",ns).text
     except:
@@ -124,6 +127,9 @@ for pm in placemarks:
         except:
             name="UNNAMED_"+str(unnamedIndex)
             unnamedIndex+=1
+    if not name: # this will happen if FULLNAME exists but is blank in which case its value is None, or if it is ""
+        name="UNNAMED_"+str(unnamedIndex)
+        unnamedIndex+=1
     # print("  processing "+name)
     coordinates=pm.find('.//kml:coordinates',ns)
     # add [0:2] to get rid of z coord in case it exists
